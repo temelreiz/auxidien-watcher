@@ -68,6 +68,16 @@ const WEIGHT_BOUNDS: Record<string, { min: number; max: number }> = {
 const LAMBDA = 0.08;
 
 // ═══════════════════════════════════════════════════════════════
+// RISK MODERATION LAYER CONSTANTS
+// ═══════════════════════════════════════════════════════════════
+
+const DRAW_DOWN_THRESHOLD = 0.05;      // 5% drawdown triggers caution
+const STABILITY_THRESHOLD = 0.7;        // Correlation stability minimum
+const LIQUIDITY_THRESHOLD = 0.8;        // Liquidity stress threshold
+const DISPERSION_MIN = 0.15;            // Minimum weight dispersion
+const MIN_REGIME_DURATION = 6;          // Minimum ticks before regime change
+
+// ═══════════════════════════════════════════════════════════════
 // VOLATILITY REGIMES
 // ═══════════════════════════════════════════════════════════════
 
@@ -77,6 +87,14 @@ enum VolatilityRegime {
   HIGH = "HIGH",         // 3-6% - High volatility
   EXTREME = "EXTREME",   // > 6% - Crisis mode
 }
+
+// Daily/Weekly drift caps by regime (must be after enum definition)
+const DRIFT_CAPS: Record<VolatilityRegime, { daily: number; weekly: number }> = {
+  [VolatilityRegime.LOW]: { daily: 0.03, weekly: 0.08 },      // 3% daily, 8% weekly
+  [VolatilityRegime.MEDIUM]: { daily: 0.02, weekly: 0.05 },   // 2% daily, 5% weekly
+  [VolatilityRegime.HIGH]: { daily: 0.015, weekly: 0.04 },    // 1.5% daily, 4% weekly
+  [VolatilityRegime.EXTREME]: { daily: 0.01, weekly: 0.025 }, // 1% daily, 2.5% weekly
+};
 
 interface RegimeConfig {
   maxPriceChange: number;  // Max allowed price change per update
@@ -129,6 +147,25 @@ interface GoldApiResponse {
   timestamp: number;
 }
 
+// Risk Moderation Layer interfaces
+interface RiskState {
+  indexValue: number;
+  historicalIndex: number[];
+  volatility: Record<string, number>;
+  correlations: number[][];
+  liquidityStress: number;
+  weights: Record<string, number>;
+  currentRegime: VolatilityRegime;
+  regimeDuration: number;
+}
+
+interface RiskAdjustedParams {
+  driftCap: number;
+  weightSpeed: number;
+  rebalanceBias: "diversify" | "neutral" | "concentrate";
+  allowRegimeChange: boolean;
+}
+
 // Price history for volatility calculation (last 24-48 hours)
 const priceHistory: Record<string, PricePoint[]> = {
   XAU: [],
@@ -144,6 +181,23 @@ let currentWeights: Record<string, number> = {
   XPT: 0.18,  // Start at middle of 10-25%
   XPD: 0.15,  // Adjusted to sum to 1
 };
+
+// Index price history for drawdown calculation
+const indexHistory: number[] = [];
+const MAX_INDEX_HISTORY = 288 * 14; // 14 days at 5-min intervals
+
+// Regime tracking
+let currentRegime: VolatilityRegime = VolatilityRegime.LOW;
+let regimeDuration: number = 0;
+let lastRegimeChange: number = Date.now();
+
+// Correlation matrix history (for stability measurement)
+let lastCorrelations: number[][] = [
+  [1, 0.7, 0.6, 0.5],
+  [0.7, 1, 0.5, 0.4],
+  [0.6, 0.5, 1, 0.6],
+  [0.5, 0.4, 0.6, 1],
+];
 
 // Keep last 288 data points (24 hours at 5-min intervals)
 const MAX_HISTORY_POINTS = 288;
@@ -237,8 +291,279 @@ function detectVolatilityRegime(volatilities: Record<string, number>): Volatilit
 }
 
 // ═══════════════════════════════════════════════════════════════
-// WEIGHT CALCULATION (Bounded & Smooth)
+// RISK MODERATION LAYER
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Get daily drift cap based on current regime
+ */
+function getDailyDriftCap(regime: VolatilityRegime): number {
+  return DRIFT_CAPS[regime].daily;
+}
+
+/**
+ * Get weekly drift cap based on current regime
+ */
+function getWeeklyDriftCap(regime: VolatilityRegime): number {
+  return DRIFT_CAPS[regime].weekly;
+}
+
+/**
+ * Calculate maximum drawdown over a lookback period
+ * @param history - Array of index values
+ * @param lookbackDays - Number of days to look back
+ */
+function calculateDrawdown(history: number[], lookbackDays: number): number {
+  if (history.length < 2) return 0;
+  
+  // Convert days to data points (288 points per day at 5-min intervals)
+  const lookbackPoints = Math.min(lookbackDays * 288, history.length);
+  const recentHistory = history.slice(-lookbackPoints);
+  
+  let maxValue = recentHistory[0];
+  let maxDrawdown = 0;
+  
+  for (const value of recentHistory) {
+    if (value > maxValue) {
+      maxValue = value;
+    }
+    const drawdown = (maxValue - value) / maxValue;
+    if (drawdown > maxDrawdown) {
+      maxDrawdown = drawdown;
+    }
+  }
+  
+  return maxDrawdown;
+}
+
+/**
+ * Measure correlation stability between current and historical correlations
+ * Returns value between 0 (unstable) and 1 (perfectly stable)
+ */
+function measureCorrelationStability(correlations: number[][]): number {
+  if (!lastCorrelations || correlations.length !== lastCorrelations.length) {
+    return 1; // Assume stable if no history
+  }
+  
+  let totalDiff = 0;
+  let count = 0;
+  
+  for (let i = 0; i < correlations.length; i++) {
+    for (let j = i + 1; j < correlations[i].length; j++) {
+      const diff = Math.abs(correlations[i][j] - lastCorrelations[i][j]);
+      totalDiff += diff;
+      count++;
+    }
+  }
+  
+  const avgDiff = count > 0 ? totalDiff / count : 0;
+  // Convert to stability score (lower diff = higher stability)
+  return Math.max(0, 1 - avgDiff * 2);
+}
+
+/**
+ * Calculate weight dispersion (entropy-based)
+ * Higher dispersion = more diversified
+ */
+function calculateWeightDispersion(weights: Record<string, number>): number {
+  const values = Object.values(weights);
+  const n = values.length;
+  
+  if (n === 0) return 0;
+  
+  // Calculate entropy-based dispersion
+  let entropy = 0;
+  for (const w of values) {
+    if (w > 0) {
+      entropy -= w * Math.log(w);
+    }
+  }
+  
+  // Normalize by max entropy (uniform distribution)
+  const maxEntropy = Math.log(n);
+  return maxEntropy > 0 ? entropy / maxEntropy : 0;
+}
+
+/**
+ * Adjust drift cap based on market conditions
+ */
+function adjustCap(baseCap: number, drawdownMode: boolean, stressedLiquidity: boolean): number {
+  let adjustedCap = baseCap;
+  
+  if (drawdownMode) {
+    adjustedCap *= 0.5; // Halve the cap during drawdowns
+  }
+  
+  if (stressedLiquidity) {
+    adjustedCap *= 0.7; // Reduce by 30% during liquidity stress
+  }
+  
+  return Math.max(0.005, adjustedCap); // Minimum 0.5% cap
+}
+
+/**
+ * Adjust weight transition speed based on conditions
+ */
+function adjustWeightSpeed(drawdownMode: boolean, fragmentedMarket: boolean): number {
+  let speed = LAMBDA; // Base speed
+  
+  if (drawdownMode) {
+    speed *= 0.5; // Slower during drawdowns
+  }
+  
+  if (fragmentedMarket) {
+    speed *= 0.3; // Much slower when correlations are unstable
+  }
+  
+  return Math.max(0.01, speed); // Minimum speed
+}
+
+/**
+ * Calculate simple correlation matrix from price histories
+ */
+function calculateCorrelations(): number[][] {
+  const metals = ["XAU", "XAG", "XPT", "XPD"];
+  const n = metals.length;
+  const correlations: number[][] = Array(n).fill(null).map(() => Array(n).fill(0));
+  
+  for (let i = 0; i < n; i++) {
+    correlations[i][i] = 1; // Self-correlation
+    for (let j = i + 1; j < n; j++) {
+      const corr = calculatePairCorrelation(metals[i], metals[j]);
+      correlations[i][j] = corr;
+      correlations[j][i] = corr;
+    }
+  }
+  
+  return correlations;
+}
+
+/**
+ * Calculate correlation between two metals
+ */
+function calculatePairCorrelation(metal1: string, metal2: string): number {
+  const h1 = priceHistory[metal1];
+  const h2 = priceHistory[metal2];
+  
+  if (h1.length < 20 || h2.length < 20) {
+    // Default correlations when insufficient data
+    const defaults: Record<string, Record<string, number>> = {
+      XAU: { XAG: 0.7, XPT: 0.6, XPD: 0.5 },
+      XAG: { XAU: 0.7, XPT: 0.5, XPD: 0.4 },
+      XPT: { XAU: 0.6, XAG: 0.5, XPD: 0.6 },
+      XPD: { XAU: 0.5, XAG: 0.4, XPT: 0.6 },
+    };
+    return defaults[metal1]?.[metal2] || 0.5;
+  }
+  
+  // Get matching time windows
+  const minLen = Math.min(h1.length, h2.length, 100);
+  const r1 = calculateLogReturns(h1.slice(-minLen));
+  const r2 = calculateLogReturns(h2.slice(-minLen));
+  
+  if (r1.length < 10 || r2.length < 10) return 0.5;
+  
+  const len = Math.min(r1.length, r2.length);
+  
+  // Calculate means
+  const mean1 = r1.slice(0, len).reduce((a, b) => a + b, 0) / len;
+  const mean2 = r2.slice(0, len).reduce((a, b) => a + b, 0) / len;
+  
+  // Calculate correlation
+  let cov = 0, var1 = 0, var2 = 0;
+  for (let i = 0; i < len; i++) {
+    const d1 = r1[i] - mean1;
+    const d2 = r2[i] - mean2;
+    cov += d1 * d2;
+    var1 += d1 * d1;
+    var2 += d2 * d2;
+  }
+  
+  const denom = Math.sqrt(var1 * var2);
+  return denom > 0 ? cov / denom : 0;
+}
+
+/**
+ * Estimate liquidity stress (bid-ask spread proxy)
+ * In production, this would use actual market data
+ */
+function estimateLiquidityStress(): number {
+  // Calculate recent volatility spike as liquidity proxy
+  const vols = {
+    XAU: calculateVolatility("XAU"),
+    XAG: calculateVolatility("XAG"),
+    XPT: calculateVolatility("XPT"),
+    XPD: calculateVolatility("XPD"),
+  };
+  
+  // Historical average volatilities
+  const avgVols = { XAU: 0.12, XAG: 0.22, XPT: 0.18, XPD: 0.30 };
+  
+  // Calculate how much current vol exceeds historical
+  let stressScore = 0;
+  for (const [metal, vol] of Object.entries(vols)) {
+    const ratio = vol / avgVols[metal as keyof typeof avgVols];
+    if (ratio > 1.5) {
+      stressScore += (ratio - 1.5) * 0.5;
+    }
+  }
+  
+  return Math.min(1, stressScore / 2); // Normalize to 0-1
+}
+
+/**
+ * Main Risk Moderation function
+ * Computes risk-adjusted parameters based on current market state
+ */
+function computeRiskAdjustedParameters(state: RiskState): RiskAdjustedParams {
+  const {
+    indexValue,
+    historicalIndex,
+    volatility,
+    correlations,
+    liquidityStress,
+    weights,
+    currentRegime,
+    regimeDuration
+  } = state;
+
+  // 1. Rate limiting
+  const dailyCap = getDailyDriftCap(currentRegime);
+  const weeklyCap = getWeeklyDriftCap(currentRegime);
+
+  // 2. Drawdown awareness
+  const drawdown = calculateDrawdown(historicalIndex, 14);
+  const drawdownMode = drawdown > DRAW_DOWN_THRESHOLD;
+
+  // 3. Correlation stability
+  const corrStability = measureCorrelationStability(correlations);
+  const fragmentedMarket = corrStability < STABILITY_THRESHOLD;
+
+  // 4. Liquidity stress proxy
+  const stressedLiquidity = liquidityStress > LIQUIDITY_THRESHOLD;
+
+  // 5. Weight dispersion
+  const dispersion = calculateWeightDispersion(weights);
+  const overConcentration = dispersion < DISPERSION_MIN;
+
+  // 6. Regime persistence
+  const regimeLocked = regimeDuration < MIN_REGIME_DURATION;
+
+  // Log risk assessment
+  console.log("\n🛡️  RISK ASSESSMENT");
+  console.log(`   Drawdown (14d): ${(drawdown * 100).toFixed(2)}% ${drawdownMode ? "⚠️ CAUTION" : "✓"}`);
+  console.log(`   Correlation Stability: ${(corrStability * 100).toFixed(1)}% ${fragmentedMarket ? "⚠️ FRAGMENTED" : "✓"}`);
+  console.log(`   Liquidity Stress: ${(liquidityStress * 100).toFixed(1)}% ${stressedLiquidity ? "⚠️ STRESSED" : "✓"}`);
+  console.log(`   Weight Dispersion: ${(dispersion * 100).toFixed(1)}% ${overConcentration ? "⚠️ CONCENTRATED" : "✓"}`);
+  console.log(`   Regime Duration: ${regimeDuration} ticks ${regimeLocked ? "🔒 LOCKED" : "🔓"}`);
+
+  return {
+    driftCap: adjustCap(dailyCap, drawdownMode, stressedLiquidity),
+    weightSpeed: adjustWeightSpeed(drawdownMode, fragmentedMarket),
+    rebalanceBias: overConcentration ? "diversify" : "neutral",
+    allowRegimeChange: !regimeLocked
+  };
+}
 
 /**
  * Calculate target weights based on inverse volatility
@@ -361,6 +686,7 @@ async function fetchAndProcessSignals(): Promise<{
   indexPrice: number;
   regime: VolatilityRegime;
   volatilities: Record<string, number>;
+  riskParams: RiskAdjustedParams;
 }> {
   console.log("\n📡 SIGNAL PROCESSING");
   console.log("   Fetching raw signals from goldapi.io...");
@@ -402,21 +728,78 @@ async function fetchAndProcessSignals(): Promise<{
   }
 
   // Detect regime
-  const regime = detectVolatilityRegime(volatilities);
-  const regimeConfig = REGIME_CONFIGS[regime];
+  const detectedRegime = detectVolatilityRegime(volatilities);
+  const regimeConfig = REGIME_CONFIGS[detectedRegime];
+  
+  // Update regime duration tracking
+  if (detectedRegime !== currentRegime) {
+    regimeDuration = 0;
+  } else {
+    regimeDuration++;
+  }
+
+  // === RISK MODERATION LAYER ===
+  // Calculate correlations
+  const correlations = calculateCorrelations();
+  
+  // Estimate liquidity stress
+  const liquidityStress = estimateLiquidityStress();
+  
+  // Build risk state
+  const riskState: RiskState = {
+    indexValue: 0, // Will be calculated after weights
+    historicalIndex: [...indexHistory],
+    volatility: volatilities,
+    correlations,
+    liquidityStress,
+    weights: currentWeights,
+    currentRegime,
+    regimeDuration
+  };
+  
+  // Get risk-adjusted parameters
+  const riskParams = computeRiskAdjustedParameters(riskState);
+  
+  // Apply regime change only if allowed
+  const regime = riskParams.allowRegimeChange ? detectedRegime : currentRegime;
+  if (riskParams.allowRegimeChange) {
+    currentRegime = detectedRegime;
+  }
+  
   console.log(`\n🎯 VOLATILITY REGIME: ${regime}`);
   console.log(`   ${regimeConfig.description}`);
   console.log(`   Max price change: ${(regimeConfig.maxPriceChange * 100).toFixed(1)}%`);
+  console.log(`   Risk-Adjusted Drift Cap: ${(riskParams.driftCap * 100).toFixed(2)}%`);
 
   // Calculate target weights
   const targetWeights = calculateTargetWeights(volatilities);
+  
+  // Apply rebalance bias if over-concentrated
+  let adjustedTargets = { ...targetWeights };
+  if (riskParams.rebalanceBias === "diversify") {
+    console.log("\n⚠️  DIVERSIFICATION BIAS ACTIVE");
+    // Push weights toward center of bounds
+    for (const metal of Object.keys(adjustedTargets)) {
+      const bounds = WEIGHT_BOUNDS[metal];
+      const center = (bounds.min + bounds.max) / 2;
+      adjustedTargets[metal] = adjustedTargets[metal] * 0.7 + center * 0.3;
+    }
+    // Normalize
+    const sum = Object.values(adjustedTargets).reduce((a, b) => a + b, 0);
+    for (const metal of Object.keys(adjustedTargets)) {
+      adjustedTargets[metal] /= sum;
+    }
+  }
 
-  // Smooth transition
+  // Smooth transition with risk-adjusted speed
   console.log("\n⚖️  WEIGHT TRANSITION");
-  console.log(`   λ (smoothing factor): ${LAMBDA}`);
+  console.log(`   λ (base): ${LAMBDA}, Risk-adjusted: ${riskParams.weightSpeed.toFixed(4)}`);
   
   const previousWeights = { ...currentWeights };
-  currentWeights = smoothWeightTransition(currentWeights, targetWeights, LAMBDA);
+  currentWeights = smoothWeightTransition(currentWeights, adjustedTargets, riskParams.weightSpeed);
+  
+  // Update correlation history
+  lastCorrelations = correlations;
 
   console.log("\n   Metal    | Previous | Target   | New      | Bounds");
   console.log("   " + "─".repeat(55));
@@ -455,7 +838,13 @@ async function fetchAndProcessSignals(): Promise<{
   console.log("   " + "─".repeat(45));
   console.log(`   AUXI INDEX: $${indexPrice.toFixed(4)}/gram`);
 
-  return { metals, indexPrice, regime, volatilities };
+  // Add to index history for drawdown calculation
+  indexHistory.push(indexPrice);
+  if (indexHistory.length > MAX_INDEX_HISTORY) {
+    indexHistory.shift(); // Remove oldest
+  }
+
+  return { metals, indexPrice, regime, volatilities, riskParams };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -547,7 +936,14 @@ async function runTick(oracle: ethers.Contract): Promise<void> {
   console.log("═".repeat(60));
 
   try {
-    const { metals, indexPrice, regime } = await fetchAndProcessSignals();
+    const { metals, indexPrice, regime, riskParams } = await fetchAndProcessSignals();
+    
+    // Log risk summary
+    console.log("\n📋 RISK SUMMARY");
+    console.log(`   Drift Cap: ${(riskParams.driftCap * 100).toFixed(2)}%`);
+    console.log(`   Weight Speed: ${riskParams.weightSpeed.toFixed(4)}`);
+    console.log(`   Rebalance Bias: ${riskParams.rebalanceBias}`);
+    console.log(`   Regime Change: ${riskParams.allowRegimeChange ? "Allowed" : "Locked"}`);
     
     // Check if we should publish
     const shouldPublish = shouldPublishNow();
@@ -628,7 +1024,7 @@ async function startPreprocessor(): Promise<void> {
   const balance = await provider.getBalance(wallet.address);
   console.log(`   Balance: ${ethers.formatEther(balance)} BNB`);
 
-  if (balance === 0n) {
+  if (balance === BigInt(0)) {
     console.warn("   ⚠️ Wallet has no BNB - transactions will fail!");
   }
 
