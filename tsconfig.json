@@ -8,23 +8,12 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist",
-    "rootDir": "./",
+    "rootDir": "./src",
     "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
+    "declaration": false,
     "sourceMap": true,
     "moduleResolution": "node"
   },
-  "include": [
-    "scripts/**/*",
-    "src/**/*",
-    "test/**/*",
-    "hardhat.config.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "artifacts",
-    "cache",
-    "dist"
-  ]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

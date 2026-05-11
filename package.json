@@ -1,43 +1,31 @@
 {
-  "name": "auxidien",
+  "name": "auxidien-watcher",
   "version": "1.0.0",
-  "description": "Auxidien Index Token (AUXI) - Volume-weighted precious metals index",
-  "main": "index.js",
+  "description": "Off-chain price oracle watcher for the Auxidien (AUXI) precious metals index",
+  "main": "dist/auxidien-index.js",
   "scripts": {
-    "compile": "hardhat compile",
-    "test": "hardhat test",
-    "deploy:token": "hardhat run scripts/deployAuxiToken.ts --network bscTestnet",
-    "deploy:oracle": "hardhat run scripts/deployAuxidienOracle.ts --network bscTestnet",
-    "deploy:vesting": "hardhat run scripts/deployAuxiVesting.ts --network bscTestnet",
-    "deploy:all": "npm run deploy:token && npm run deploy:oracle && npm run deploy:vesting",
-    "verify": "hardhat verify --network bscTestnet",
-    "watcher": "ts-node src/watcher/auxidien-index.ts",
-    "clean": "hardhat clean",
-    "node": "hardhat node"
+    "start": "ts-node src/auxidien-index.ts",
+    "build": "tsc",
+    "start:prod": "node dist/auxidien-index.js",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "auxidien",
     "auxi",
-    "index-token",
-    "precious-metals",
-    "defi",
-    "bsc"
+    "oracle",
+    "price-feed",
+    "bsc",
+    "precious-metals"
   ],
   "author": "Auxidien Team",
   "license": "MIT",
-  "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
-    "@nomicfoundation/hardhat-verify": "^2.0.0",
-    "@openzeppelin/contracts": "^5.0.0",
-    "@types/cheerio": "^0.22.35",
-    "@types/node": "^20.10.0",
+  "dependencies": {
     "dotenv": "^16.3.1",
-    "hardhat": "^2.19.0",
+    "ethers": "^6.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.0"
-  },
-  "dependencies": {
-    "cheerio": "^1.0.0",
-    "ethers": "^6.9.0"
   }
 }
