@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc && node -e \"require('fs').cpSync('src/abi','dist/abi',{recursive:true})\"",
+    "postinstall": "npm run build",
     "start": "node dist/auxidien-index.js",
     "dev": "ts-node src/auxidien-index.ts",
     "typecheck": "tsc --noEmit"

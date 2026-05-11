@@ -1,1 +1,1 @@
-worker: node dist/auxidien-index.js
+web: node dist/auxidien-index.js
