@@ -3,10 +3,13 @@
   "version": "1.0.0",
   "description": "Off-chain price oracle watcher for the Auxidien (AUXI) precious metals index",
   "main": "dist/auxidien-index.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "ts-node src/auxidien-index.ts",
-    "build": "tsc",
-    "start:prod": "node dist/auxidien-index.js",
+    "build": "tsc && node -e \"require('fs').cpSync('src/abi','dist/abi',{recursive:true})\"",
+    "start": "node dist/auxidien-index.js",
+    "dev": "ts-node src/auxidien-index.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
