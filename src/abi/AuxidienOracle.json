@@ -1,8 +1,16 @@
 [
   {
     "inputs": [
-      { "internalType": "address", "name": "admin", "type": "address" },
-      { "internalType": "uint256", "name": "_minUpdateInterval", "type": "uint256" }
+      {
+        "internalType": "address",
+        "name": "admin",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_minUpdateInterval",
+        "type": "uint256"
+      }
     ],
     "stateMutability": "nonpayable",
     "type": "constructor"
@@ -14,8 +22,16 @@
   },
   {
     "inputs": [
-      { "internalType": "address", "name": "account", "type": "address" },
-      { "internalType": "bytes32", "name": "neededRole", "type": "bytes32" }
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "neededRole",
+        "type": "bytes32"
+      }
     ],
     "name": "AccessControlUnauthorizedAccount",
     "type": "error"
@@ -23,17 +39,18 @@
   {
     "anonymous": false,
     "inputs": [
-      { "indexed": false, "internalType": "uint256", "name": "oldInterval", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "newInterval", "type": "uint256" }
-    ],
-    "name": "MinUpdateIntervalChanged",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": false, "internalType": "uint256", "name": "oldRate", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "newRate", "type": "uint256" }
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "oldRate",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newRate",
+        "type": "uint256"
+      }
     ],
     "name": "MaxPriceChangeRateChanged",
     "type": "event"
@@ -41,11 +58,36 @@
   {
     "anonymous": false,
     "inputs": [
-      { "indexed": false, "internalType": "uint256", "name": "goldPrice", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "silverPrice", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "platinumPrice", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "palladiumPrice", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256" }
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "goldPrice",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "silverPrice",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "platinumPrice",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "palladiumPrice",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "timestamp",
+        "type": "uint256"
+      }
     ],
     "name": "MetalPricesRecorded",
     "type": "event"
@@ -53,48 +95,201 @@
   {
     "anonymous": false,
     "inputs": [
-      { "indexed": false, "internalType": "uint256", "name": "pricePerOzE6", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256" },
-      { "indexed": true, "internalType": "address", "name": "updater", "type": "address" }
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "oldInterval",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newInterval",
+        "type": "uint256"
+      }
+    ],
+    "name": "MinUpdateIntervalChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "pricePerOzE6",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "timestamp",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "updater",
+        "type": "address"
+      }
     ],
     "name": "PriceUpdated",
     "type": "event"
   },
   {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "previousAdminRole",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "newAdminRole",
+        "type": "bytes32"
+      }
+    ],
+    "name": "RoleAdminChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleGranted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "RoleRevoked",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "goldBps",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "silverBps",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "platinumBps",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "palladiumBps",
+        "type": "uint16"
+      }
+    ],
+    "name": "WeightsChanged",
+    "type": "event"
+  },
+  {
     "inputs": [],
     "name": "ADMIN_ROLE",
-    "outputs": [{ "internalType": "bytes32", "name": "", "type": "bytes32" }],
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "DEFAULT_ADMIN_ROLE",
-    "outputs": [{ "internalType": "bytes32", "name": "", "type": "bytes32" }],
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "ORACLE_ROLE",
-    "outputs": [{ "internalType": "bytes32", "name": "", "type": "bytes32" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getPricePerOzE6",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "getPriceData",
     "outputs": [
-      { "internalType": "uint256", "name": "price", "type": "uint256" },
-      { "internalType": "uint256", "name": "updatedAt", "type": "uint256" },
-      { "internalType": "uint8", "name": "decimals", "type": "uint8" }
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "WEIGHT_DENOMINATOR",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
     ],
     "stateMutability": "view",
     "type": "function"
@@ -103,32 +298,138 @@
     "inputs": [],
     "name": "getMetalPrices",
     "outputs": [
-      { "internalType": "uint256", "name": "gold", "type": "uint256" },
-      { "internalType": "uint256", "name": "silver", "type": "uint256" },
-      { "internalType": "uint256", "name": "platinum", "type": "uint256" },
-      { "internalType": "uint256", "name": "palladium", "type": "uint256" }
+      {
+        "internalType": "uint256",
+        "name": "gold",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "silver",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "platinum",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "palladium",
+        "type": "uint256"
+      }
     ],
     "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "address", "name": "oracle", "type": "address" }],
+    "inputs": [],
+    "name": "getPriceData",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "price",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "updatedAt",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "decimals",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getPricePerOzE6",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getRoleAdmin",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getWeights",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "goldBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "silverBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "platinumBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "palladiumBps",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "oracle",
+        "type": "address"
+      }
+    ],
     "name": "grantOracleRole",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "bytes32", "name": "role", "type": "bytes32" }],
-    "name": "getRoleAdmin",
-    "outputs": [{ "internalType": "bytes32", "name": "", "type": "bytes32" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
-      { "internalType": "bytes32", "name": "role", "type": "bytes32" },
-      { "internalType": "address", "name": "account", "type": "address" }
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
     ],
     "name": "grantRole",
     "outputs": [],
@@ -137,46 +438,126 @@
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "role", "type": "bytes32" },
-      { "internalType": "address", "name": "account", "type": "address" }
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
     ],
     "name": "hasRole",
-    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "uint256", "name": "maxAge", "type": "uint256" }],
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "maxAge",
+        "type": "uint256"
+      }
+    ],
     "name": "isStale",
-    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lastMetalPrices",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "goldPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "silverPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "platinumPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "palladiumPrice",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "lastUpdateAt",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "maxPriceChangeRate",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [],
     "name": "minUpdateInterval",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "role", "type": "bytes32" },
-      { "internalType": "address", "name": "callerConfirmation", "type": "address" }
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "callerConfirmation",
+        "type": "address"
+      }
     ],
     "name": "renounceRole",
     "outputs": [],
@@ -185,8 +566,29 @@
   },
   {
     "inputs": [
-      { "internalType": "bytes32", "name": "role", "type": "bytes32" },
-      { "internalType": "address", "name": "account", "type": "address" }
+      {
+        "internalType": "address",
+        "name": "oracle",
+        "type": "address"
+      }
+    ],
+    "name": "revokeOracleRole",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
     ],
     "name": "revokeRole",
     "outputs": [],
@@ -194,28 +596,39 @@
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "address", "name": "oracle", "type": "address" }],
-    "name": "revokeOracleRole",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "rate", "type": "uint256" }],
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "rate",
+        "type": "uint256"
+      }
+    ],
     "name": "setMaxPriceChangeRate",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "uint256", "name": "interval", "type": "uint256" }],
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "interval",
+        "type": "uint256"
+      }
+    ],
     "name": "setMinUpdateInterval",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "uint256", "name": "newPricePerOzE6", "type": "uint256" }],
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "newPricePerOzE6",
+        "type": "uint256"
+      }
+    ],
     "name": "setPricePerOzE6",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -223,11 +636,31 @@
   },
   {
     "inputs": [
-      { "internalType": "uint256", "name": "newPricePerOzE6", "type": "uint256" },
-      { "internalType": "uint256", "name": "goldPrice", "type": "uint256" },
-      { "internalType": "uint256", "name": "silverPrice", "type": "uint256" },
-      { "internalType": "uint256", "name": "platinumPrice", "type": "uint256" },
-      { "internalType": "uint256", "name": "palladiumPrice", "type": "uint256" }
+      {
+        "internalType": "uint256",
+        "name": "newPricePerOzE6",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "goldPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "silverPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "platinumPrice",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "palladiumPrice",
+        "type": "uint256"
+      }
     ],
     "name": "setPriceWithMetals",
     "outputs": [],
@@ -235,9 +668,77 @@
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "bytes4", "name": "interfaceId", "type": "bytes4" }],
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "goldBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "silverBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "platinumBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "palladiumBps",
+        "type": "uint16"
+      }
+    ],
+    "name": "setWeights",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes4",
+        "name": "interfaceId",
+        "type": "bytes4"
+      }
+    ],
     "name": "supportsInterface",
-    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "weights",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "goldBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "silverBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "platinumBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "palladiumBps",
+        "type": "uint16"
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   }

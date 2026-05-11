@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import dotenv from "dotenv";
+import OracleAbi from "./abi/AuxidienOracle.json";
 
 dotenv.config();
 
@@ -23,11 +24,12 @@ const PRIVATE_KEY = process.env.PRIVATE_KEY!;
 const GOLDAPI_KEY = process.env.GOLDAPI_KEY!;
 
 const WATCHER_INTERVAL = parseInt(process.env.WATCHER_INTERVAL || "3600000", 10); // 1 hour
-const GOLDAPI_REQUEST_DELAY_MS = parseInt(process.env.GOLDAPI_REQUEST_DELAY_MS || "300", 10); // 300ms between requests
-const GOLDAPI_CACHE_TTL_MS = parseInt(process.env.GOLDAPI_CACHE_TTL_MS || "60000", 10); // 1 min cache
-const ORACLE_MAX_STEP_BPS = parseInt(process.env.ORACLE_MAX_STEP_BPS || "300", 10); // %3
+const GOLDAPI_REQUEST_DELAY_MS = parseInt(process.env.GOLDAPI_REQUEST_DELAY_MS || "300", 10);
+const GOLDAPI_CACHE_TTL_MS = parseInt(process.env.GOLDAPI_CACHE_TTL_MS || "60000", 10);
+const ORACLE_MAX_STEP_BPS = parseInt(process.env.ORACLE_MAX_STEP_BPS || "300", 10); // 3%
 
 const OUNCE_TO_GRAM = 31.1035;
+const WEIGHT_DENOMINATOR = 10_000n;
 
 /* ═══════════════════════════════════════════════
    TYPES
@@ -35,28 +37,30 @@ const OUNCE_TO_GRAM = 31.1035;
 type MetalSymbol = "XAU" | "XAG" | "XPT" | "XPD";
 
 interface RawSignals {
-  XAU: { priceUsdPerG: number };
-  XAG: { priceUsdPerG: number };
-  XPT: { priceUsdPerG: number };
-  XPD: { priceUsdPerG: number };
+  XAU: { priceUsdPerOz: number };
+  XAG: { priceUsdPerOz: number };
+  XPT: { priceUsdPerOz: number };
+  XPD: { priceUsdPerOz: number };
 }
 
-type Weights = Record<MetalSymbol, number>;
+interface OnChainWeights {
+  goldBps: bigint;
+  silverBps: bigint;
+  platinumBps: bigint;
+  palladiumBps: bigint;
+}
 
 interface OracleContract extends ethers.BaseContract {
-  setPricePerOzE6: (newPricePerOzE6: bigint) => Promise<any>;
+  setPriceWithMetals: (
+    newPricePerOzE6: bigint,
+    goldPrice: bigint,
+    silverPrice: bigint,
+    platinumPrice: bigint,
+    palladiumPrice: bigint,
+  ) => Promise<ethers.ContractTransactionResponse>;
   getPricePerOzE6: () => Promise<bigint>;
+  getWeights: () => Promise<[bigint, bigint, bigint, bigint]>;
 }
-
-/* ═══════════════════════════════════════════════
-   WEIGHTS
-═══════════════════════════════════════════════ */
-const CURRENT_WEIGHTS: Weights = {
-  XAU: 0.55,
-  XAG: 0.20,
-  XPT: 0.17,
-  XPD: 0.08,
-};
 
 /* ═══════════════════════════════════════════════
    GOLDAPI FETCH (RATE-LIMIT SAFE)
@@ -64,7 +68,6 @@ const CURRENT_WEIGHTS: Weights = {
 let lastFetchAt = 0;
 let cachedData: RawSignals | null = null;
 
-// Helper: wait between requests
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function fetchMetal(symbol: MetalSymbol): Promise<number> {
@@ -81,41 +84,37 @@ async function fetchMetal(symbol: MetalSymbol): Promise<number> {
   }
 
   const json: any = await res.json();
-  return json.price / OUNCE_TO_GRAM; // USD/g
+  // GoldAPI returns USD/oz directly under `price`.
+  return json.price;
 }
 
 async function fetchRawSignals(): Promise<RawSignals> {
   const now = Date.now();
-  
-  // Return cached data if still valid
+
   if (cachedData && now - lastFetchAt < GOLDAPI_CACHE_TTL_MS) {
     console.log("📦 Using cached price data");
     return cachedData;
   }
 
   console.log("🌐 Fetching fresh prices from GoldAPI...");
-  
-  // Fetch metals sequentially with delay between each request
-  // This prevents rate limiting (max 5 req/sec)
+
   const metals: MetalSymbol[] = ["XAU", "XAG", "XPT", "XPD"];
   const prices: Partial<RawSignals> = {};
 
   for (const metal of metals) {
     try {
-      prices[metal] = { priceUsdPerG: await fetchMetal(metal) };
-      console.log(`   ✓ ${metal}: $${prices[metal]!.priceUsdPerG.toFixed(4)}/g`);
-      
-      // Wait between requests to avoid rate limit
-      if (metal !== "XPD") { // Don't wait after last one
+      prices[metal] = { priceUsdPerOz: await fetchMetal(metal) };
+      console.log(`   ✓ ${metal}: $${prices[metal]!.priceUsdPerOz.toFixed(4)}/oz`);
+
+      if (metal !== "XPD") {
         await delay(GOLDAPI_REQUEST_DELAY_MS);
       }
     } catch (err: any) {
-      // If we have cached data, use it for this metal
       if (cachedData && cachedData[metal]) {
-        console.log(`   ⚠ ${metal} failed, using cached: $${cachedData[metal].priceUsdPerG.toFixed(4)}/g`);
+        console.log(`   ⚠ ${metal} failed, using cached: $${cachedData[metal].priceUsdPerOz.toFixed(4)}/oz`);
         prices[metal] = cachedData[metal];
       } else {
-        throw err; // No fallback available
+        throw err;
       }
     }
   }
@@ -126,19 +125,30 @@ async function fetchRawSignals(): Promise<RawSignals> {
 }
 
 /* ═══════════════════════════════════════════════
-   INDEX CALCULATION (USD / gram)
+   INDEX CALCULATION
 ═══════════════════════════════════════════════ */
-function computeIndexPrice(prices: RawSignals, weights: Weights): number {
+function toE6(usdPerOz: number): bigint {
+  return BigInt(Math.round(usdPerOz * 1_000_000));
+}
+
+function computeIndexE6(prices: RawSignals, weights: OnChainWeights): bigint {
+  const xau = toE6(prices.XAU.priceUsdPerOz);
+  const xag = toE6(prices.XAG.priceUsdPerOz);
+  const xpt = toE6(prices.XPT.priceUsdPerOz);
+  const xpd = toE6(prices.XPD.priceUsdPerOz);
+
+  // weighted sum / 10000
   return (
-    prices.XAU.priceUsdPerG * weights.XAU +
-    prices.XAG.priceUsdPerG * weights.XAG +
-    prices.XPT.priceUsdPerG * weights.XPT +
-    prices.XPD.priceUsdPerG * weights.XPD
+    (xau * weights.goldBps +
+      xag * weights.silverBps +
+      xpt * weights.platinumBps +
+      xpd * weights.palladiumBps) /
+    WEIGHT_DENOMINATOR
   );
 }
 
 /* ═══════════════════════════════════════════════
-   ORACLE STEP LOGIC
+   ORACLE STEP LOGIC (off-chain extra safety)
 ═══════════════════════════════════════════════ */
 function stepLimitedE6(current: bigint, target: bigint, maxStepBps: number): bigint {
   if (current === target) return target;
@@ -154,52 +164,72 @@ function stepLimitedE6(current: bigint, target: bigint, maxStepBps: number): big
   return diff > 0n ? current + maxStep : current - maxStep;
 }
 
+/* ═══════════════════════════════════════════════
+   PUBLISH
+═══════════════════════════════════════════════ */
 async function publishToOracle(
-  oracle: OracleContract, 
+  oracle: OracleContract,
   wallet: ethers.Wallet,
   provider: ethers.JsonRpcProvider,
-  indexUsdPerG: number
+  raw: RawSignals,
+  weights: OnChainWeights,
 ) {
-  const targetUsdPerOz = indexUsdPerG * OUNCE_TO_GRAM;
-  const targetE6 = BigInt(Math.round(targetUsdPerOz * 1_000_000));
-
+  const targetE6 = computeIndexE6(raw, weights);
   const currentE6 = await oracle.getPricePerOzE6();
   const nextE6 = stepLimitedE6(currentE6, targetE6, ORACLE_MAX_STEP_BPS);
 
-  // Skip if no change needed
   if (currentE6 === nextE6) {
     console.log("⏭️  No price change needed, skipping transaction");
     return;
   }
 
-  // Check wallet balance before sending
   const balance = await provider.getBalance(wallet.address);
   const balanceBNB = Number(balance) / 1e18;
   console.log(`💰 Wallet balance: ${balanceBNB.toFixed(6)} BNB`);
 
   if (balance < ethers.parseEther("0.001")) {
-    console.error(`❌ Insufficient BNB! Need at least 0.001 BNB. Current: ${balanceBNB.toFixed(6)} BNB`);
-    console.error(`   Wallet address: ${wallet.address}`);
-    console.error(`   Please send BNB to this address to continue.`);
-    return; // Skip this tick instead of failing
+    console.error(`❌ Insufficient BNB on ${wallet.address}; skipping tick`);
+    return;
   }
 
   console.log(
-    `🧾 Oracle publish | current=${currentE6} target=${targetE6} next=${nextE6} step=${ORACLE_MAX_STEP_BPS}bps`
+    `🧾 Oracle publish | current=${currentE6} target=${targetE6} next=${nextE6} step=${ORACLE_MAX_STEP_BPS}bps`,
   );
 
+  const goldE6 = toE6(raw.XAU.priceUsdPerOz);
+  const silverE6 = toE6(raw.XAG.priceUsdPerOz);
+  const platinumE6 = toE6(raw.XPT.priceUsdPerOz);
+  const palladiumE6 = toE6(raw.XPD.priceUsdPerOz);
+
   try {
-    const tx = await oracle.setPricePerOzE6(nextE6);
+    const tx = await oracle.setPriceWithMetals(
+      nextE6,
+      goldE6,
+      silverE6,
+      platinumE6,
+      palladiumE6,
+    );
     console.log(`📤 TX sent: ${tx.hash}`);
     await tx.wait();
-    console.log(`✅ TX confirmed!`);
+    console.log(`✅ TX confirmed`);
   } catch (err: any) {
     if (err.code === "INSUFFICIENT_FUNDS") {
-      console.error(`❌ Insufficient funds for gas. Please add BNB to: ${wallet.address}`);
+      console.error(`❌ Insufficient funds for gas on ${wallet.address}`);
     } else {
       throw err;
     }
   }
+}
+
+async function fetchWeights(oracle: OracleContract): Promise<OnChainWeights> {
+  const [goldBps, silverBps, platinumBps, palladiumBps] = await oracle.getWeights();
+  const sum = goldBps + silverBps + platinumBps + palladiumBps;
+  if (sum !== WEIGHT_DENOMINATOR) {
+    throw new Error(
+      `On-chain weights do not sum to 10000: gold=${goldBps} silver=${silverBps} platinum=${platinumBps} palladium=${palladiumBps}`,
+    );
+  }
+  return { goldBps, silverBps, platinumBps, palladiumBps };
 }
 
 /* ═══════════════════════════════════════════════
@@ -212,48 +242,45 @@ async function run() {
   console.log("══════════════════════════════════════════════════");
   console.log("🚀 Auxidien Price Oracle Watcher");
   console.log("══════════════════════════════════════════════════");
-  console.log(`   Wallet: ${wallet.address}`);
-  console.log(`   Oracle: ${ORACLE_ADDRESS}`);
-  console.log(`   Interval: ${WATCHER_INTERVAL / 1000}s`);
-  console.log(`   Cache TTL: ${GOLDAPI_CACHE_TTL_MS / 1000}s`);
+  console.log(`   Wallet:        ${wallet.address}`);
+  console.log(`   Oracle:        ${ORACLE_ADDRESS}`);
+  console.log(`   Interval:      ${WATCHER_INTERVAL / 1000}s`);
+  console.log(`   Cache TTL:     ${GOLDAPI_CACHE_TTL_MS / 1000}s`);
   console.log(`   Request delay: ${GOLDAPI_REQUEST_DELAY_MS}ms`);
+  console.log(`   Max step:      ${ORACLE_MAX_STEP_BPS}bps`);
   console.log("══════════════════════════════════════════════════");
 
-  // Check initial balance
   const balance = await provider.getBalance(wallet.address);
   const balanceBNB = Number(balance) / 1e18;
   console.log(`💰 Initial balance: ${balanceBNB.toFixed(6)} BNB`);
-  
+
   if (balanceBNB < 0.01) {
-    console.warn(`⚠️  Low BNB balance! Consider adding more BNB to: ${wallet.address}`);
+    console.warn(`⚠️  Low BNB balance! Consider topping up: ${wallet.address}`);
   }
 
   const oracle = new ethers.Contract(
     ORACLE_ADDRESS,
-    [
-      "function setPricePerOzE6(uint256 newPricePerOzE6) external",
-      "function getPricePerOzE6() external view returns (uint256)",
-    ],
-    wallet
+    OracleAbi as any,
+    wallet,
   ) as unknown as OracleContract;
 
-  console.log("✅ Watcher initialized successfully!");
-  console.log("   Starting price update loop...");
+  console.log("✅ Watcher initialized; entering tick loop");
   console.log("══════════════════════════════════════════════════");
 
   while (true) {
     try {
       console.log(`\n⏰ Tick at ${new Date().toISOString()}`);
+      const weights = await fetchWeights(oracle);
+      console.log(
+        `⚖️  Weights | XAU=${weights.goldBps} XAG=${weights.silverBps} XPT=${weights.platinumBps} XPD=${weights.palladiumBps}`,
+      );
       const raw = await fetchRawSignals();
-      const index = computeIndexPrice(raw, CURRENT_WEIGHTS);
-
-      console.log(`📈 Computed index: $${index.toFixed(4)} USD/g`);
-      await publishToOracle(oracle, wallet, provider, index);
+      await publishToOracle(oracle, wallet, provider, raw, weights);
     } catch (err: any) {
       console.error("❌ Tick failed:", err.message || err);
     }
 
-    console.log(`⏳ Next tick in ${WATCHER_INTERVAL / 1000} seconds...`);
+    console.log(`⏳ Next tick in ${WATCHER_INTERVAL / 1000}s`);
     await new Promise(r => setTimeout(r, WATCHER_INTERVAL));
   }
 }
